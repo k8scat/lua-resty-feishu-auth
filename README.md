@@ -4,21 +4,54 @@
 
 ## 使用
 
+### 安装 OpenResty
+
+参考: https://k8scat.com/posts/linux/install-openresty-on-ubuntu-from-source-code/
+
 ### 下载
 
 ```bash
-cd /path/to
-git clone git@github.com:ledgetech/lua-resty-http.git
-git clone git@github.com:SkyLothar/lua-resty-jwt.git
-git clone git@github.com:k8scat/lua-resty-feishu-auth.git
+cd /usr/local/openresty/site/lualib
+git clone https://github.com/k8scat/lua-resty-http.git
+git clone https://github.com/k8scat/lua-resty-jwt.git
+git clone https://github.com/k8scat/lua-resty-feishu-auth.git
 ```
 
 ### 配置
 
-```conf
-lua_package_path "/path/to/lua-resty-feishu-auth/lib/?.lua;/path/to/lua-resty-jwt/lib/?.lua;/path/to/lua-resty-http/lib/?.lua;/path/to/lua-resty-redis/lib/?.lua;/path/to/lua-resty-redis-lock/lib/?.lua;;";
+#### http 配置
 
+```conf
+http {
+    lua_package_path "/usr/local/openresty/site/lualib/lua-resty-feishu-auth/lib/?.lua;/usr/local/openresty/site/lualib/lua-resty-jwt/lib/?.lua;/usr/local/openresty/site/lualib/lua-resty-jwt/vendor/?.lua;/usr/local/openresty/site/lualib/lua-resty-http/lib/?.lua;;";
+}
+```
+
+#### server 配置
+
+```
 server {
+    listen 443 ssl;
+    server_name feishu-auth.example.com;
+    resolver 8.8.8.8;
+    
+    ssl_certificate /usr/local/openresty/cert/feishu-auth.example.com.crt;
+    ssl_certificate_key /usr/local/openresty/cert/feishu-auth.example.com.key;
+    ssl_session_cache shared:SSL:1m;
+    ssl_session_timeout 5m;
+    ssl_protocols TLSv1 TLSv1.1 TLSv1.2;
+    ssl_ciphers AESGCM:HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers  on;
+    lua_ssl_verify_depth 2;
+    lua_ssl_trusted_certificate /etc/pki/tls/certs/ca-bundle.crt;
+    if ($time_iso8601 ~ "^(\d{4})-(\d{2})-(\d{2})T(\d{2})") {
+        set $year $1;
+        set $month $2;
+        set $day $3;
+    }
+    access_log logs/feishu-auth.example.com_access_$year$month$day.log main;
+    error_log logs/feishu-auth.example.com_error_$year$month$day.log;
+
     access_by_lua_block {
         local feishu_auth = require "resty.feishu_auth"
         feishu_auth.app_id = ""
@@ -36,6 +69,15 @@ server {
         feishu_auth:auth()
     }
 }
+
+server {
+    listen 80;
+    server_name feishu-auth.example.com;
+
+    location / {
+        rewrite ^/(.*) https://$server_name/$1 redirect;
+    }
+}
 ```
 
 ### 配置说明
@@ -48,7 +90,7 @@ server {
 - `jwt_secret` 用于设置 JWT secret
 - `ip_blacklist` 用于设置 IP 黑名单
 - `uri_whitelist` 用于设置地址白名单，例如首页不需要登录认证
-- `department_whitelist` 用于设置部门白名单（字符串）
+- `department_whitelist` 用于设置部门白名单（字符串），默认不限制部门
 
 ### 应用权限说明
 
